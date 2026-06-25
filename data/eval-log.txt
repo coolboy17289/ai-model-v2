@@ -1,0 +1,7 @@
+Eval set:       7 pair(s) over 1011 paragraph(s)
+
+Model           Recall@1  Recall@3
+baseline           1.000     1.000
+
+→ ship: baseline  (r@1 delta +0.000, no fine-tuned model present)
+Active model file: D:\ai model v2\data\active_model.txt

@@ -122,6 +122,18 @@ def compare() -> str:
     matrix, ids = _all_paragraphs()
     print(f"Eval set: {len(eval_pairs)} pair(s) over {len(ids)} paragraph(s).", file=sys.stderr)
 
+    # Sanity-warning when the eval set is small or dominated by verbatim positives.
+    # Recall saturates at 1.0 on near-identical (query, paragraph) pairs regardless
+    # of encoder quality, so the eval signal is degenerate. The 2pt rollback rule
+    # still catches catastrophic degradation; small improvements won't be visible.
+    n = len(eval_pairs)
+    if n < 50:
+        print(
+            f"NOTE: eval set is small (n={n}). Recall@k is a noisy estimator here; "
+            "small improvements may not be visible.",
+            file=sys.stderr,
+        )
+
     # Load both models
     baseline_path = _ensure_baseline_snapshot(verbose=True)
     baseline_model = SentenceTransformer(baseline_path)
