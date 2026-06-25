@@ -48,10 +48,19 @@ def get_wikipedia_page(title):
     # Remove script and style tags
     html = re.sub(r'<script\b[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
     html = re.sub(r'<style\b[^>]*>.*?</style>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
-    # Remove tags
+    # Replace block-level tags with newline to preserve paragraph structure
+    html = re.sub(r'<(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'</(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    # Replace <br> and <hr> with newline
+    html = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'<hr\s*/?>', '\n', html, flags=re.IGNORECASE)
+    # Remove all other tags
     text = re.sub(r'<[^>]+>', ' ', html)
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
+    # Replace multiple newlines with a single newline, then multiple spaces with space
+    text = re.sub(r'\n+', '\n', text)  # multiple newlines to single newline
+    text = re.sub(r'[ \t]+', ' ', text)  # multiple spaces to single space
+    # Strip leading/trailing spaces and newlines
+    text = text.strip()
     return text
 
 def tokenize(text):
@@ -110,7 +119,7 @@ def train_topic(topic):
     conn.commit()
     conn.close()
 
-    # Add each paragraph and update document frequency
+    # Add each paragraph and update document frequency (per paragraph)
     for para in paragraphs:
         para_id = add_paragraph(para)
         terms = tokenize(para)
@@ -184,8 +193,8 @@ def cosine_similarity(vec1, vec2):
 def query_question(question):
     """Query the database for answers to a question."""
     print(f"Processing question: {question}")
-    # Get total number of documents for IDF
-    total_docs = get_document_count()
+    # Get total number of paragraphs for IDF
+    total_docs = get_total_paragraphs()
     if total_docs == 0:
         print("No documents trained yet. Please train on some topics first.")
         return []
@@ -318,9 +327,9 @@ def main():
         auto_train(topic)
     elif command == "ready":
         # Check if there is any data
-        doc_count = get_document_count()
-        if doc_count > 0:
-            print("I am ready! I have been trained on", doc_count, "topic(s).")
+        para_count = get_total_paragraphs()
+        if para_count > 0:
+            print("I am ready! I have been trained on", para_count, "paragraph(s).")
             print("Ask me questions using /ask <your question>.")
         else:
             print("I have not been trained yet. Please train me first using /train <topic>.")
