@@ -28,6 +28,20 @@ public class CommandHandler {
             } catch (Exception e) {
                 System.out.println("\u001B[31mError during training: " + e.getMessage() + "\u001B[0m");
             }
+        } else if (input.startsWith("/autotrain ")) {
+            String topic = input.substring(11).trim();
+            if (topic.isEmpty()) {
+                System.out.println("\u001B[31mPlease specify a topic (or YouTube URL) to autotrain on.\u001B[0m");
+                return;
+            }
+            System.out.println("\u001B[33mAuto-training on: \"" + topic + "\" (primary + related articles)...\u001B[0m");
+            try {
+                String output = PythonBridge.runPythonScript("scripts/brain.py", "autotrain", topic);
+                System.out.println(output);
+                System.out.println("\u001B[32mAuto-training completed.\u001B[0m");
+            } catch (Exception e) {
+                System.out.println("\u001B[31mError during auto-training: " + e.getMessage() + "\u001B[0m");
+            }
         } else if (input.startsWith("/ask ")) {
             String question = input.substring(5).trim();
             if (question.isEmpty()) {
@@ -90,6 +104,7 @@ public class CommandHandler {
         System.out.println("\u001B[36mAvailable commands:\u001B[0m");
         System.out.println("  /help    - Show this help message");
         System.out.println("  /train <topic> - Train the model on a topic");
+        System.out.println("  /autotrain <topic> - Auto-train on topic + related articles");
         System.out.println("  /ask <question> - Ask a question to the model");
         System.out.println("  /list    - List trained topics");
         System.out.println("  /info    - Show system information");

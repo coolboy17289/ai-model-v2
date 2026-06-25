@@ -299,6 +299,40 @@ def clear_database():
     init_db()
     print("Database cleared.")
 
+def get_related_wikipedia_titles(title, limit=3):
+    """Fetch related Wikipedia article titles via the MediaWiki 'links' API.
+
+    Returns up to `limit` titles from the article's outbound links, skipping
+    self-references and Wikipedia meta pages (Help:, Special:, Wikipedia:).
+    """
+    api_url = (
+        "https://en.wikipedia.org/w/api.php?"
+        f"action=query&prop=links&titles={quote_plus(title)}"
+        f"&pllimit={max(limit * 5, 20)}&format=json&redirects=1"
+    )
+    try:
+        req = urllib.request.Request(api_url, headers={'User-Agent': 'AI-Model-Trainer/1.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        print(f"Error fetching related titles for '{title}': {e}")
+        return []
+
+    pages = data.get('query', {}).get('pages', {})
+    related = []
+    skip_prefixes = ('Help:', 'Special:', 'Wikipedia:', 'Talk:', 'Template:', 'Portal:', 'File:')
+    for page in pages.values():
+        for link in page.get('links', []):
+            lt = link.get('title', '')
+            if not lt or lt == title:
+                continue
+            if any(lt.startswith(p) for p in skip_prefixes):
+                continue
+            related.append(lt)
+            if len(related) >= limit:
+                return related
+    return related
+
 def auto_train(topic):
     """Auto train on a topic and then answer a few sample questions."""
     print(f"Auto-training on topic: {topic}")
@@ -311,10 +345,51 @@ def auto_train(topic):
     print("Try: /ask What is", topic + "?")
     print("Or just type your question after /ask.")
 
+def autotrain_topic(topic, related_limit=3):
+    """Train on a topic and up to `related_limit` related Wikipedia articles.
+
+    If `topic` looks like a YouTube URL, the YouTube transcript path is used
+    for the primary source and no related-article expansion is performed.
+    Returns the number of sources successfully trained on.
+    """
+    is_youtube = topic.startswith(('http://', 'https://')) and ('youtube.com' in topic or 'youtu.be' in topic)
+    print(f"=== Auto-training pipeline for: {topic} ===")
+
+    trained = 0
+    if train_topic(topic):
+        trained += 1
+    else:
+        print("Primary source failed; aborting auto-training pipeline.")
+        return trained
+
+    if is_youtube:
+        print("YouTube URL detected; skipping related-article expansion.")
+        return trained
+
+    print(f"\nDiscovering up to {related_limit} related Wikipedia articles...")
+    related = get_related_wikipedia_titles(topic, limit=related_limit)
+    if not related:
+        print("No related articles found.")
+        return trained
+
+    print(f"Found {len(related)} related article(s):")
+    for r in related:
+        print(f"  - {r}")
+    print()
+
+    for r in related:
+        print(f"--- Training on related: {r} ---")
+        if train_topic(r):
+            trained += 1
+
+    print(f"\n=== Auto-training complete: {trained} source(s) trained ===")
+    print(f"You can now ask questions about {topic} (and related topics).")
+    return trained
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python brain.py <command> [args]")
-        print("Commands: train <topic>, query <question>, list, info, clear, auto_train <topic>, ready")
+        print("Commands: train <topic>, query <question>, list, info, clear, auto_train <topic>, autotrain <topic>, ready")
         return
 
     # Initialize database (creates tables if not exist)
@@ -362,6 +437,12 @@ def main():
             return
         topic = " ".join(sys.argv[2:])
         auto_train(topic)
+    elif command == "autotrain":
+        if len(sys.argv) < 3:
+            print("Please specify a topic (or YouTube URL) to autotrain on.")
+            return
+        topic = " ".join(sys.argv[2:])
+        autotrain_topic(topic)
     elif command == "ready":
         # Check if there is any data
         para_count = get_total_paragraphs()
@@ -372,7 +453,7 @@ def main():
             print("I have not been trained yet. Please train me first using /train <topic>.")
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: train, query, list, info, clear, auto_train, ready")
+        print("Available commands: train, query, list, info, clear, auto_train, autotrain, ready")
 
 if __name__ == "__main__":
     main()
