@@ -36,6 +36,35 @@ def init_db():
     conn.close()
 
 def get_wikipedia_page(title):
+def get_youtube_transcript(url):
+    """Fetch the transcript of a YouTube video."""
+    try:
+        # Extract video ID from URL
+        if "youtu.be" in url:
+            video_id = url.split("/")[-1].split("?")[0]
+        elif "youtube.com" in url:
+            if "v=" in url:
+                video_id = url.split("v=")[1]
+                if "&" in video_id:
+                    video_id = video_id.split("&")[0]
+            else:
+                video_id = None
+        else:
+            video_id = None
+
+        if video_id is None:
+            print("Could not extract video ID from URL.")
+            return None
+
+        # Fetch transcript
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        # Join the text parts
+        transcript = " ".join([entry['text'] for entry in transcript_list])
+        return transcript
+    except Exception as e:
+        print(f"Error fetching YouTube transcript: {e}")
+        return None
+
     """Fetch the plain text content of a Wikipedia page."""
     url = f"https://en.wikipedia.org/w/index.php?title={quote_plus(title)}&printable=yes"
     try:
@@ -96,7 +125,11 @@ def add_paragraph(text):
 def train_topic(topic):
     """Train the model on a Wikipedia topic."""
     print(f"Fetching Wikipedia page for: {topic}")
-    text = get_wikipedia_page(topic)
+
+    if topic.startswith(('http://', 'https://')) and ('youtube.com' in topic or 'youtu.be' in topic):
+        text = get_youtube_transcript(topic)
+    else:
+        text = get_wikipedia_page(topic)
     if not text:
         print("Failed to fetch Wikipedia page.")
         return False
