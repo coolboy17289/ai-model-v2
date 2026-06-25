@@ -39,7 +39,7 @@ def get_wikipedia_page(title):
     url = f"https://en.wikipedia.org/w/index.php?title={quote_plus(title)}&printable=yes"
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'AI-Model-Trainer/1.0'})
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             html = response.read().decode('utf-8')
     except Exception as e:
         print(f"Error fetching Wikipedia page: {e}")
@@ -105,6 +105,11 @@ def train_topic(topic):
     if not paragraphs:
         print("No content found.")
         return False
+
+    # Limit to first 100 paragraphs to avoid too much data
+    if len(paragraphs) > 100:
+        print(f"Limiting to first 100 paragraphs (out of {len(paragraphs)})")
+        paragraphs = paragraphs[:100]
 
     # Store the document (we'll store the title for listing)
     conn = sqlite3.connect(DATABASE)
