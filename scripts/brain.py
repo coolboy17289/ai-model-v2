@@ -36,6 +36,34 @@ def init_db():
     conn.close()
 
 def get_wikipedia_page(title):
+    """Fetch the plain text content of a Wikipedia page."""
+    url = f"https://en.wikipedia.org/w/index.php?title={quote_plus(title)}&printable=yes"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'AI-Model-Trainer/1.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            html = response.read().decode('utf-8')
+    except Exception as e:
+        print(f"Error fetching Wikipedia page: {e}")
+        return None
+
+    # Remove script and style tags
+    html = re.sub(r'<script\b[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'<style\b[^>]*>.*?</style>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+    # Replace block-level tags with newline to preserve paragraph structure
+    html = re.sub(r'<(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'</(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    # Replace <br> and <hr> with newline
+    html = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'<hr\s*/?>', '\n', html, flags=re.IGNORECASE)
+    # Remove all other tags
+    text = re.sub(r'<[^>]+>', ' ', html)
+    # Replace multiple newlines with a single newline, then multiple spaces with space
+    text = re.sub(r'\n+', '\n', text)  # multiple newlines to single newline
+    text = re.sub(r'[ \t]+', ' ', text)  # multiple spaces to single space
+    # Strip leading/trailing spaces and newlines
+    text = text.strip()
+    return text
+
 def get_youtube_transcript(url):
     """Fetch the transcript of a YouTube video."""
     try:
@@ -64,34 +92,6 @@ def get_youtube_transcript(url):
     except Exception as e:
         print(f"Error fetching YouTube transcript: {e}")
         return None
-
-    """Fetch the plain text content of a Wikipedia page."""
-    url = f"https://en.wikipedia.org/w/index.php?title={quote_plus(title)}&printable=yes"
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'AI-Model-Trainer/1.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            html = response.read().decode('utf-8')
-    except Exception as e:
-        print(f"Error fetching Wikipedia page: {e}")
-        return None
-
-    # Remove script and style tags
-    html = re.sub(r'<script\b[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<style\b[^>]*>.*?</style>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
-    # Replace block-level tags with newline to preserve paragraph structure
-    html = re.sub(r'<(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
-    html = re.sub(r'</(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
-    # Replace <br> and <hr> with newline
-    html = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
-    html = re.sub(r'<hr\s*/?>', '\n', html, flags=re.IGNORECASE)
-    # Remove all other tags
-    text = re.sub(r'<[^>]+>', ' ', html)
-    # Replace multiple newlines with a single newline, then multiple spaces with space
-    text = re.sub(r'\n+', '\n', text)  # multiple newlines to single newline
-    text = re.sub(r'[ \t]+', ' ', text)  # multiple spaces to single space
-    # Strip leading/trailing spaces and newlines
-    text = text.strip()
-    return text
 
 def tokenize(text):
     """Simple tokenization: lowercase and split on non-alphanumeric."""
