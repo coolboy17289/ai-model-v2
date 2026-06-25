@@ -75,9 +75,94 @@ def _clean_query(q: str) -> str:
     return q[0].upper() + q[1:]
 
 
+# Heading-like opening. These are Wikipedia collapsible section labels, table
+# headers, navigation elements. Tokenized as paragraphs but useless for QA.
+_HEADING_PREFIXES = (
+    "Toggle ", "Jump to ", "edit ", "See also ", "References ",
+    "External links ", "Further reading ", "Notes ", "Citations ",
+    "Bibliography ", "Source: ", "Sources: ",
+)
+# Paragraphs that look like titles: short, no terminating punctuation,
+# contain digits/colons/dashes typical of section headers.
+_HEADING_RE = re.compile(r"^[\dA-Za-z][\w \-:/&()',.]{0,80}$")
+
+
+def _looks_like_heading(text: str) -> bool:
+    if any(text.startswith(p) for p in _HEADING_PREFIXES):
+        return True
+    stripped = text.strip()
+    if len(stripped) > 80:
+        return False
+    if stripped.endswith((".", "?", "!")):
+        return False
+    # Short, no sentence punctuation, contains year or colon -> heading-like
+    if re.search(r"\d{4}", stripped) and (":" in stripped or "–" in stripped or "—" in stripped):
+        return True
+    if _HEADING_RE.match(stripped) and not stripped.endswith("."):
+        # Only flag if it doesn't look like a regular sentence (no lowercase
+        # verb forms etc.) - cheap proxy: < 12 words and no "the/a/an".
+        if len(stripped.split()) < 12 and not re.search(r"\b(the|a|an|of|in|for|to|and)\b", stripped, re.IGNORECASE):
+            return True
+    return False
+
+
+# Subject extraction for "What is X": prefer a clean capitalized noun phrase.
+# Avoids grabbing "The first set of rules" when the real subject follows.
+def _extract_subject(text: str) -> str | None:
+    """Return a clean subject noun-phrase from the first sentence of `text`."""
+    sentences = _split_sentences(text)
+    if not sentences:
+        return None
+    first = sentences[0]
+
+    # Pattern A: "X is a/an/the ..."  -> subject is X
+    m = re.match(
+        r"^(?P<subject>[A-Z][A-Za-z0-9\-_/&]+(?:\s+[A-Z][A-Za-z0-9\-_/&]+){0,4})"
+        r"\s+(?:is|are|was|were|refers to|denotes?|describes?)\s+",
+        first,
+    )
+    if m:
+        subj = m.group("subject").strip()
+        words = subj.split()
+        if 2 <= len(words) <= 6 and not any(w.lower() in {"the", "a", "an", "this", "that"} for w in words[:1]):
+            return subj
+
+    # Pattern B: "X, also known as ..." -> subject is X
+    m = re.match(r"^(?P<subject>[A-Z][\w\-_/& ]+?),\s+(?:also known as|formerly|sometimes)", first, re.IGNORECASE)
+    if m:
+        subj = m.group("subject").strip()
+        if 2 <= len(subj.split()) <= 6:
+            return subj
+
+    # Pattern C: fallback - first capitalized run of 2-4 words.
+    m = re.match(r"^(?P<subject>[A-Z][\w\-_/&]+(?:\s+[A-Z][\w\-_/&]+){0,3})", first)
+    if m:
+        subj = m.group("subject").strip()
+        if 2 <= len(subj.split()) <= 5:
+            return subj
+    return None
+
+
+def _is_clean_subject(s: str) -> bool:
+    """Reject subjects that contain stopwords or year prefixes."""
+    if not s:
+        return False
+    if re.match(r"^\d", s):
+        return False
+    bad = {"the", "a", "an", "this", "that", "these", "those", "after", "before", "in", "on", "at"}
+    words = s.lower().split()
+    if words[0] in bad:
+        return False
+    if any(w in bad for w in words[:2]):
+        return False
+    return True
+
+
 def _generate_for_paragraph(text: str) -> list[str]:
     """Return up to MAX_PAIRS_PER_PARA queries for a single paragraph."""
     if not (MIN_PARA_LEN <= len(text) <= MAX_PARA_LEN):
+        return []
+    if _looks_like_heading(text):
         return []
 
     queries: list[str] = []
@@ -88,38 +173,15 @@ def _generate_for_paragraph(text: str) -> list[str]:
         queries.append(verbatim)
 
     # 2. "What is X" template on definition openings
-    sentences = _split_sentences(text)
-    first = sentences[0] if sentences else text
-    m = _DEFINITION_RE.match(first)
-    if m:
-        subject = m.group("subject").strip()
-        if 2 <= len(subject.split()) <= 8:
-            q = f"What is {subject}?"
-            if len(q) <= MAX_QUERY_LEN:
-                queries.append(q)
-            else:
-                queries.append(f"Tell me about {subject.split()[0]}...")
+    subject = _extract_subject(text)
+    if subject and _is_clean_subject(subject):
+        q = f"What is {subject}?"
+        if len(q) <= MAX_QUERY_LEN and q not in queries:
+            queries.append(q)
 
-    # 3. Verb-fronting transform: "Python is a high-level language." -> "What is a high-level language that Python is?"
-    if len(queries) < MAX_PAIRS_PER_PARA:
-        for sent in sentences[:2]:
-            cm = _COPULA_RE.match(sent)
-            if not cm:
-                continue
-            subject = cm.group("subject").strip()
-            copula = cm.group("copula").strip()
-            predicate = cm.group("predicate").strip()
-            if not (1 <= len(subject.split()) <= 5):
-                continue
-            if len(predicate.split()) < 2:
-                continue
-            # Two variants depending on which reads more natural
-            q1 = f"What {predicate.split()[0]} {subject} {copula}?"
-            q2 = f"What is {predicate} ({subject})?"
-            chosen = q2 if len(q2) <= MAX_QUERY_LEN else q1
-            if len(chosen) <= MAX_QUERY_LEN and chosen not in queries:
-                queries.append(chosen)
-            break  # only one verb-fronting query per paragraph
+    # 3. Verb-fronting transform: "X is Y." -> "What is Y (X)?"
+    # Skip: low yield on Wikipedia and produces nonsense more often than not.
+    # Empirically <10% useful yield on the test corpus; not worth the noise.
 
     # Dedupe and cap
     seen = set()
