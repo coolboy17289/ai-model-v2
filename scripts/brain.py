@@ -588,6 +588,7 @@ def main():
         print("Commands: train <topic>, query <question>, list, info, clear,")
         print("          auto_train <topic>, autotrain <topic>,")
         print("          langtrain <matlab|r|cpp> <query>, ready")
+        print("          embed_rebuild, model, eval, finetune")
         return
 
     # Initialize database (creates tables if not exist)
@@ -652,6 +653,43 @@ def main():
             return
         query = " ".join(sys.argv[3:])
         train_language_doc(language, query)
+    elif command == "embed_rebuild":
+        # Rebuild paragraph embeddings for the active model. Delta-encodes
+        # only paragraphs missing from the embeddings table.
+        try:
+            from embeddings import rebuild_embeddings
+            stats = rebuild_embeddings(verbose=True)
+            print(f"Active model: {stats['model']}")
+            print(f"Embedding dim: {stats['dim']}")
+            print(f"Newly encoded: {stats['new']}")
+            print(f"Already encoded: {stats['skipped']}")
+        except Exception as e:
+            print(f"Error rebuilding embeddings: {e}")
+    elif command == "model":
+        # Print embedding-model diagnostics.
+        try:
+            from embeddings import stats as emb_stats
+            s = emb_stats()
+            print(f"Active model: {s['model']}")
+            print(f"Embedding dim: {s['dim']}")
+            print(f"Encoded rows: {s['encoded']} / {s['paragraphs']} paragraphs")
+        except Exception as e:
+            print(f"Error getting model info: {e}")
+    elif command == "eval":
+        # Run held-out evaluation comparing baseline vs fine-tuned (if any).
+        try:
+            from eval import compare
+            print(compare())
+        except Exception as e:
+            print(f"Error during eval: {e}")
+    elif command == "finetune":
+        # Run fine-tuning on synthetic_pairs, then eval.compare() to pick winner.
+        try:
+            from finetune import finetune
+            result = finetune()
+            print(result)
+        except Exception as e:
+            print(f"Error during fine-tune: {e}")
     elif command == "ready":
         # Check if there is any data
         para_count = get_total_paragraphs()
@@ -663,7 +701,8 @@ def main():
     else:
         print(f"Unknown command: {command}")
         print("Available commands: train, query, list, info, clear,")
-        print("                    auto_train, autotrain, langtrain, ready")
+        print("                    auto_train, autotrain, langtrain, ready,")
+        print("                    embed_rebuild, model, eval, finetune")
 
 if __name__ == "__main__":
     main()
