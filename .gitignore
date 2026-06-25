@@ -1,0 +1,13 @@
+# Build artifacts
+bin/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# ML model artifacts (large, regenerable)
+data/fine-tuned-model/
+data/baseline-model/
+data/sbert-cache/
+data/active_model.txt

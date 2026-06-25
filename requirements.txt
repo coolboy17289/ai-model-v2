@@ -1,0 +1,14 @@
+# ML dependencies for the AI Model v2 retrieval system.
+# Install with: pip install -r requirements.txt
+#
+# NOTE: torch pulls ~2 GB on Windows. We pin the CPU build because:
+#   1. CPU inference on 384-dim embeddings over ~1k paragraphs is sub-second.
+#   2. Most users running this project won't have a CUDA-capable GPU.
+#   3. Fine-tuning on 2-3k pairs is a few minutes on CPU; not worth the
+#      install complexity of a CUDA torch.
+#
+# If you DO have CUDA and want GPU fine-tuning, replace the torch line with:
+#   torch --index-url https://download.pytorch.org/whl/cu121
+sentence-transformers==3.2.1
+torch==2.4.1
+numpy==2.1.3
