@@ -487,6 +487,8 @@ def clear_database():
     c.execute('DELETE FROM paragraphs')
     c.execute('DELETE FROM term_doc_count')
     c.execute('DELETE FROM documents')
+    c.execute('DELETE FROM paragraph_embeddings')
+    c.execute('DELETE FROM synthetic_pairs')
     conn.commit()
     conn.close()
     # Recreate tables (optional, but ensures tables exist)
