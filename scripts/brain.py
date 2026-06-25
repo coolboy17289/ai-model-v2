@@ -6,7 +6,6 @@ import sqlite3
 import sys
 import os
 from urllib.parse import quote_plus
-from youtube_transcript_api import YouTubeTranscriptApi
 
 DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'brain.db')
 
@@ -64,6 +63,7 @@ def get_wikipedia_page(title):
     text = text.strip()
     return text
 
+
 def get_youtube_transcript(url):
     """Fetch the transcript of a YouTube video."""
     try:
@@ -92,7 +92,6 @@ def get_youtube_transcript(url):
     except Exception as e:
         print(f"Error fetching YouTube transcript: {e}")
         return None
-
 def tokenize(text):
     """Simple tokenization: lowercase and split on non-alphanumeric."""
     words = re.findall(r"\b[\w']+\b", text.lower())
@@ -125,7 +124,6 @@ def add_paragraph(text):
 def train_topic(topic):
     """Train the model on a Wikipedia topic."""
     print(f"Fetching Wikipedia page for: {topic}")
-
     if topic.startswith(('http://', 'https://')) and ('youtube.com' in topic or 'youtu.be' in topic):
         text = get_youtube_transcript(topic)
     else:
