@@ -1,0 +1,332 @@
+import urllib.request
+import json
+import re
+import math
+import sqlite3
+import sys
+import os
+from urllib.parse import quote_plus
+
+DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'brain.db')
+
+def init_db():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    # Create tables if they don't exist
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS paragraphs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS term_doc_count (
+            term TEXT PRIMARY KEY,
+            doc_count INTEGER NOT NULL
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT UNIQUE NOT NULL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def get_wikipedia_page(title):
+    """Fetch the plain text content of a Wikipedia page."""
+    url = f"https://en.wikipedia.org/w/index.php?title={quote_plus(title)}&printable=yes"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'AI-Model-Trainer/1.0'})
+        with urllib.request.urlopen(req) as response:
+            html = response.read().decode('utf-8')
+    except Exception as e:
+        print(f"Error fetching Wikipedia page: {e}")
+        return None
+
+    # Remove script and style tags
+    html = re.sub(r'<script\b[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'<style\b[^>]*>.*?</style>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+    # Remove tags
+    text = re.sub(r'<[^>]+>', ' ', html)
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def tokenize(text):
+    """Simple tokenization: lowercase and split on non-alphanumeric."""
+    words = re.findall(r"\b[\w']+\b", text.lower())
+    return words
+
+def update_document_frequency(terms):
+    """Update document frequency for terms in a document (set of terms)."""
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    unique_terms = set(terms)
+    for term in unique_terms:
+        c.execute('''
+            INSERT INTO term_doc_count (term, doc_count)
+            VALUES (?, 1)
+            ON CONFLICT(term) DO UPDATE SET doc_count = doc_count + 1
+        ''', (term,))
+    conn.commit()
+    conn.close()
+
+def add_paragraph(text):
+    """Add a paragraph to the database and return its ID."""
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('INSERT INTO paragraphs (text) VALUES (?)', (text,))
+    para_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return para_id
+
+def train_topic(topic):
+    """Train the model on a Wikipedia topic."""
+    print(f"Fetching Wikipedia page for: {topic}")
+    text = get_wikipedia_page(topic)
+    if not text:
+        print("Failed to fetch Wikipedia page.")
+        return False
+
+    # Split into paragraphs (by newline)
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    if not paragraphs:
+        print("No content found.")
+        return False
+
+    # Store the document (we'll store the title for listing)
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    try:
+        c.execute('INSERT INTO documents (title) VALUES (?)', (topic,))
+        doc_id = c.lastrowid
+    except sqlite3.IntegrityError:
+        # Document already exists, get its ID
+        c.execute('SELECT id FROM documents WHERE title = ?', (topic,))
+        doc_id = c.fetchone()[0]
+    conn.commit()
+    conn.close()
+
+    # Add each paragraph and update document frequency
+    for para in paragraphs:
+        para_id = add_paragraph(para)
+        terms = tokenize(para)
+        update_document_frequency(terms)
+
+    print(f"Trained on {len(paragraphs)} paragraphs from '{topic}'.")
+    return True
+
+def get_total_paragraphs():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM paragraphs')
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
+def get_vocab_size():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM term_doc_count')
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
+def get_document_count():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM documents')
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
+def compute_idf(term, total_docs):
+    """Compute inverse document frequency for a term."""
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('SELECT doc_count FROM term_doc_count WHERE term = ?', (term,))
+    row = c.fetchone()
+    conn.close()
+    df = row[0] if row else 0
+    # Add 1 to avoid division by zero
+    return math.log((total_docs + 1) / (df + 1))
+
+def compute_tfidf_vector(text, idf_dict):
+    """Compute TF-IDF vector for a text given IDF values."""
+    words = tokenize(text)
+    tf = {}
+    for word in words:
+        tf[word] = tf.get(word, 0) + 1
+    tfidf = {}
+    for term, count in tf.items():
+        tfidf[term] = count * idf_dict.get(term, 0)
+    return tfidf
+
+def cosine_similarity(vec1, vec2):
+    """Compute cosine similarity between two vectors."""
+    dot_product = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    all_terms = set(vec1.keys()) | set(vec2.keys())
+    for term in all_terms:
+        a = vec1.get(term, 0.0)
+        b = vec2.get(term, 0.0)
+        dot_product += a * b
+        norm_a += a * a
+        norm_b += b * b
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot_product / (math.sqrt(norm_a) * math.sqrt(norm_b))
+
+def query_question(question):
+    """Query the database for answers to a question."""
+    print(f"Processing question: {question}")
+    # Get total number of documents for IDF
+    total_docs = get_document_count()
+    if total_docs == 0:
+        print("No documents trained yet. Please train on some topics first.")
+        return []
+
+    # Tokenize question
+    question_terms = tokenize(question)
+    # Compute IDF for each term in question
+    idf_dict = {}
+    for term in question_terms:
+        idf_dict[term] = compute_idf(term, total_docs)
+    # Compute TF-IDF vector for question
+    question_vector = compute_tfidf_vector(question, idf_dict)
+
+    # Fetch all paragraphs
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('SELECT id, text FROM paragraphs')
+    rows = c.fetchall()
+    conn.close()
+
+    similarities = []
+    for para_id, para_text in rows:
+        para_terms = tokenize(para_text)
+        # Compute IDF for paragraph terms
+        para_idf_dict = {}
+        for term in para_terms:
+            if term not in para_idf_dict:
+                para_idf_dict[term] = compute_idf(term, total_docs)
+        para_vector = compute_tfidf_vector(para_text, para_idf_dict)
+        similarity = cosine_similarity(question_vector, para_vector)
+        similarities.append((para_id, para_text, similarity))
+
+    # Sort by similarity descending
+    similarities.sort(key=lambda x: x[2], reverse=True)
+    # Return top 3
+    return similarities[:3]
+
+def list_topics():
+    """List all trained topics."""
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('SELECT title FROM documents')
+    rows = c.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
+
+def info_stats():
+    """Return statistics about the database."""
+    return {
+        'documents': get_document_count(),
+        'paragraphs': get_total_paragraphs(),
+        'vocabulary_size': get_vocab_size()
+    }
+
+def clear_database():
+    """Clear all data from the database."""
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute('DELETE FROM paragraphs')
+    c.execute('DELETE FROM term_doc_count')
+    c.execute('DELETE FROM documents')
+    conn.commit()
+    conn.close()
+    # Recreate tables (optional, but ensures tables exist)
+    init_db()
+    print("Database cleared.")
+
+def auto_train(topic):
+    """Auto train on a topic and then answer a few sample questions."""
+    print(f"Auto-training on topic: {topic}")
+    success = train_topic(topic)
+    if not success:
+        print("Auto-training failed.")
+        return
+    print("\nAuto-training complete. Now ready to answer questions.")
+    print("I am ready! You can ask me questions about", topic + ".")
+    print("Try: /ask What is", topic + "?")
+    print("Or just type your question after /ask.")
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python brain.py <command> [args]")
+        print("Commands: train <topic>, query <question>, list, info, clear, auto_train <topic>, ready")
+        return
+
+    # Initialize database (creates tables if not exist)
+    init_db()
+
+    command = sys.argv[1].lower()
+    if command == "train":
+        if len(sys.argv) < 3:
+            print("Please specify a topic to train on.")
+            return
+        topic = " ".join(sys.argv[2:])
+        train_topic(topic)
+        print("Training complete. I am ready to answer questions.")
+    elif command == "query":
+        if len(sys.argv) < 3:
+            print("Please ask a question.")
+            return
+        question = " ".join(sys.argv[2:])
+        results = query_question(question)
+        if not results:
+            return
+        print("\nTop 3 relevant paragraphs:")
+        for i, (para_id, text, score) in enumerate(results, 1):
+            print(f"{i}. Score: {score:.4f}")
+            print(f"   {text[:200]}...")  # Show first 200 chars
+            print()
+    elif command == "list":
+        topics = list_topics()
+        if topics:
+            print("Trained topics:")
+            for topic in topics:
+                print(f"  - {topic}")
+        else:
+            print("No topics trained yet.")
+    elif command == "info":
+        stats = info_stats()
+        print(f"Documents (topics): {stats['documents']}")
+        print(f"Paragraphs: {stats['paragraphs']}")
+        print(f"Vocabulary size: {stats['vocabulary_size']}")
+    elif command == "clear":
+        clear_database()
+    elif command == "auto_train":
+        if len(sys.argv) < 3:
+            print("Please specify a topic to auto-train on.")
+            return
+        topic = " ".join(sys.argv[2:])
+        auto_train(topic)
+    elif command == "ready":
+        # Check if there is any data
+        doc_count = get_document_count()
+        if doc_count > 0:
+            print("I am ready! I have been trained on", doc_count, "topic(s).")
+            print("Ask me questions using /ask <your question>.")
+        else:
+            print("I have not been trained yet. Please train me first using /train <topic>.")
+    else:
+        print(f"Unknown command: {command}")
+        print("Available commands: train, query, list, info, clear, auto_train, ready")
+
+if __name__ == "__main__":
+    main()
