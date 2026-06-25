@@ -42,6 +42,45 @@ public class CommandHandler {
             } catch (Exception e) {
                 System.out.println("\u001B[31mError during auto-training: " + e.getMessage() + "\u001B[0m");
             }
+        } else if (input.startsWith("/trainmatlab ")) {
+            String query = input.substring(13).trim();
+            if (query.isEmpty()) {
+                System.out.println("\u001B[31mPlease specify a MATLAB query.\u001B[0m");
+                return;
+            }
+            System.out.println("\u001B[33mFetching MATLAB docs for: \"" + query + "\"...\u001B[0m");
+            try {
+                String output = PythonBridge.runPythonScript("scripts/brain.py", "langtrain", "matlab", query);
+                System.out.println(output);
+            } catch (Exception e) {
+                System.out.println("\u001B[31mError during MATLAB training: " + e.getMessage() + "\u001B[0m");
+            }
+        } else if (input.startsWith("/trainr ")) {
+            String query = input.substring(8).trim();
+            if (query.isEmpty()) {
+                System.out.println("\u001B[31mPlease specify an R query.\u001B[0m");
+                return;
+            }
+            System.out.println("\u001B[33mFetching R docs for: \"" + query + "\"...\u001B[0m");
+            try {
+                String output = PythonBridge.runPythonScript("scripts/brain.py", "langtrain", "r", query);
+                System.out.println(output);
+            } catch (Exception e) {
+                System.out.println("\u001B[31mError during R training: " + e.getMessage() + "\u001B[0m");
+            }
+        } else if (input.startsWith("/traincpp ")) {
+            String query = input.substring(10).trim();
+            if (query.isEmpty()) {
+                System.out.println("\u001B[31mPlease specify a C++ query.\u001B[0m");
+                return;
+            }
+            System.out.println("\u001B[33mFetching C++ docs for: \"" + query + "\"...\u001B[0m");
+            try {
+                String output = PythonBridge.runPythonScript("scripts/brain.py", "langtrain", "cpp", query);
+                System.out.println(output);
+            } catch (Exception e) {
+                System.out.println("\u001B[31mError during C++ training: " + e.getMessage() + "\u001B[0m");
+            }
         } else if (input.startsWith("/ask ")) {
             String question = input.substring(5).trim();
             if (question.isEmpty()) {
@@ -105,6 +144,10 @@ public class CommandHandler {
         System.out.println("  /help    - Show this help message");
         System.out.println("  /train <topic> - Train the model on a topic");
         System.out.println("  /autotrain <topic> - Auto-train on topic + related articles");
+        System.out.println("  /trainmatlab <query> - Train on MATLAB docs");
+        System.out.println("  /trainr <query>      - Train on R docs");
+        System.out.println("  /traincpp <query>    - Train on C++ docs");
+        System.out.println("  (also: /train matlab|r|cpp <query>)");
         System.out.println("  /ask <question> - Ask a question to the model");
         System.out.println("  /list    - List trained topics");
         System.out.println("  /info    - Show system information");

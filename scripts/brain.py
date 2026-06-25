@@ -64,6 +64,172 @@ def get_wikipedia_page(title):
     return text
 
 
+# --- Language-specific documentation fetchers ---
+# Each fetcher returns plain text suitable for paragraph splitting, or None on
+# failure. Sources are public HTML/JSON endpoints that don't require API keys.
+
+_LANG_ALIASES = {
+    'matlab': 'matlab', 'octave': 'matlab',
+    'r': 'r', 'cran': 'r', 'rlang': 'r',
+    'c++': 'cpp', 'cpp': 'cpp', 'cplusplus': 'cpp', 'cxx': 'cpp',
+}
+
+def _strip_html(html):
+    """Reuse the same HTML->text logic Wikipedia uses."""
+    html = re.sub(r'<script\b[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'<style\b[^>]*>.*?</style>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'<(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'</(p|div|h[1-6]|li|tr|blockquote|pre)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'<hr\s*/?>', '\n', html, flags=re.IGNORECASE)
+    text = re.sub(r'<[^>]+>', ' ', html)
+    text = re.sub(r'\n+', '\n', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    return text.strip()
+
+def _http_get_text(url, timeout=10):
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'AI-Model-Trainer/1.0'})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        print(f"Error fetching {url}: {e}")
+        return None
+
+def get_matlab_doc(query):
+    """Fetch a MATLAB documentation snippet for the given query.
+
+    Uses MathWorks' public search page and returns the title + first descriptive
+    paragraph from the top hit.
+    """
+    url = f"https://www.mathworks.com/help/search.html?q={quote_plus(query)}&type=function"
+    html = _http_get_text(url)
+    if not html:
+        return None
+    # Top result title and description live in anchor + sibling <p> within
+    # `.search-results` items. Be defensive about absent elements.
+    m = re.search(r'<a[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', html)
+    title = m.group(2).strip() if m else f"MATLAB: {query}"
+    # Grab a small window of text after the first result link.
+    snippet_match = re.search(r'<a[^>]+href="[^"]+"[^>]*>[^<]+</a>\s*</h\d+>\s*<p[^>]*>(.+?)</p>',
+                              html, flags=re.DOTALL | re.IGNORECASE)
+    snippet = ''
+    if snippet_match:
+        snippet = _strip_html(snippet_match.group(1))
+    if not snippet:
+        snippet = _strip_html(html)[:1500]
+    return f"MATLAB documentation: {title}\n{snippet}"
+
+def get_r_doc(query):
+    """Fetch an R documentation snippet for the given query.
+
+    Uses RDocumentation's public search page and returns the title + first
+    descriptive paragraph from the top hit.
+    """
+    url = f"https://www.rdocumentation.org/search?q={quote_plus(query)}"
+    html = _http_get_text(url)
+    if not html:
+        return None
+    m = re.search(r'<a[^>]+href="(/[^"]+)"[^>]*>([^<]+)</a>', html)
+    title = m.group(2).strip() if m else f"R: {query}"
+    snippet_match = re.search(r'<a[^>]+href="/[^"]+"[^>]*>[^<]+</a>(.{0,800}?)</li>',
+                             html, flags=re.DOTALL | re.IGNORECASE)
+    snippet = ''
+    if snippet_match:
+        snippet = _strip_html(snippet_match.group(1))
+    if not snippet:
+        snippet = _strip_html(html)[:1500]
+    return f"R documentation: {title}\n{snippet}"
+
+def get_cpp_doc(query):
+    """Fetch a C++ documentation snippet for the given query.
+
+    Uses cppreference's MediaWiki search API (JSON) and returns the title +
+    short snippet from the top hit. Falls back to a direct page fetch.
+    """
+    api_url = (
+        "https://en.cppreference.com/w/api.php?"
+        f"action=query&list=search&srsearch={quote_plus(query)}"
+        "&srlimit=1&format=json"
+    )
+    html = _http_get_text(api_url)
+    if not html:
+        return None
+    try:
+        data = json.loads(html)
+    except json.JSONDecodeError:
+        return None
+    results = data.get('query', {}).get('search', [])
+    if not results:
+        return f"C++ documentation: no results for '{query}'"
+    top = results[0]
+    title = top.get('title', f"C++: {query}")
+    snippet = _strip_html(top.get('snippet', ''))
+    # cppreference snippets contain <span> markup from search highlighting;
+    # _strip_html already removes those tags.
+    return f"C++ documentation: {title}\n{snippet}"
+
+LANGUAGE_FETCHERS = {
+    'matlab': get_matlab_doc,
+    'r': get_r_doc,
+    'cpp': get_cpp_doc,
+}
+
+def detect_language_topic(topic):
+    """If `topic` starts with a recognized language token, return
+    (language, query). Otherwise return None.
+    """
+    parts = topic.split(None, 1)
+    if len(parts) < 2:
+        return None
+    lang = _LANG_ALIASES.get(parts[0].lower())
+    if not lang:
+        return None
+    return lang, parts[1]
+
+def get_language_doc(language, query):
+    fetcher = LANGUAGE_FETCHERS.get(language)
+    if not fetcher:
+        print(f"No fetcher registered for language '{language}'.")
+        return None
+    return fetcher(query)
+
+def train_language_doc(language, query):
+    """Train on the documentation page for `query` in the given language."""
+    print(f"Fetching {language.upper()} documentation for: {query}")
+    text = get_language_doc(language, query)
+    if not text:
+        print(f"Failed to fetch {language.upper()} documentation.")
+        return False
+    title = f"{language.upper()}:{query}"
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    if not paragraphs:
+        print("No content found.")
+        return False
+    if len(paragraphs) > 100:
+        paragraphs = paragraphs[:100]
+
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    try:
+        c.execute('INSERT INTO documents (title) VALUES (?)', (title,))
+        doc_id = c.lastrowid
+    except sqlite3.IntegrityError:
+        c.execute('SELECT id FROM documents WHERE title = ?', (title,))
+        doc_id = c.fetchone()[0]
+    conn.commit()
+    conn.close()
+
+    for para in paragraphs:
+        para_id = add_paragraph(para)
+        terms = tokenize(para)
+        update_document_frequency(terms)
+
+    print(f"Trained on {len(paragraphs)} paragraph(s) from {language.upper()} doc '{query}'.")
+    return True
+
+# --- End language-specific fetchers ---
+
 def get_youtube_transcript(url):
     """Fetch the transcript of a YouTube video."""
     try:
@@ -122,7 +288,14 @@ def add_paragraph(text):
     return para_id
 
 def train_topic(topic):
-    """Train the model on a Wikipedia topic."""
+    """Train the model on a Wikipedia topic or language documentation."""
+    # If the topic starts with a recognized language token, dispatch to the
+    # language-doc pipeline instead of Wikipedia.
+    lang_match = detect_language_topic(topic)
+    if lang_match is not None:
+        language, query = lang_match
+        return train_language_doc(language, query)
+
     print(f"Fetching Wikipedia page for: {topic}")
     if topic.startswith(('http://', 'https://')) and ('youtube.com' in topic or 'youtu.be' in topic):
         text = get_youtube_transcript(topic)
@@ -389,7 +562,9 @@ def autotrain_topic(topic, related_limit=3):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python brain.py <command> [args]")
-        print("Commands: train <topic>, query <question>, list, info, clear, auto_train <topic>, autotrain <topic>, ready")
+        print("Commands: train <topic>, query <question>, list, info, clear,")
+        print("          auto_train <topic>, autotrain <topic>,")
+        print("          langtrain <matlab|r|cpp> <query>, ready")
         return
 
     # Initialize database (creates tables if not exist)
@@ -443,6 +618,17 @@ def main():
             return
         topic = " ".join(sys.argv[2:])
         autotrain_topic(topic)
+    elif command == "langtrain":
+        # langtrain <language> <query...>
+        if len(sys.argv) < 4:
+            print("Usage: python brain.py langtrain <matlab|r|cpp> <query>")
+            return
+        language = _LANG_ALIASES.get(sys.argv[2].lower())
+        if not language:
+            print(f"Unknown language '{sys.argv[2]}'. Supported: matlab, r, cpp.")
+            return
+        query = " ".join(sys.argv[3:])
+        train_language_doc(language, query)
     elif command == "ready":
         # Check if there is any data
         para_count = get_total_paragraphs()
@@ -453,7 +639,8 @@ def main():
             print("I have not been trained yet. Please train me first using /train <topic>.")
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: train, query, list, info, clear, auto_train, autotrain, ready")
+        print("Available commands: train, query, list, info, clear,")
+        print("                    auto_train, autotrain, langtrain, ready")
 
 if __name__ == "__main__":
     main()
