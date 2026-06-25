@@ -27,7 +27,7 @@ public class Main {
                 continue;
             }
             commandHandler.handleCommand(input);
-            System.out.print("\u001B[32mai-model > \u001B[32mai-model > \u001B[0m");
+            System.out.print("\u001B[32mai-model > \u001B[0m");
         }
         scanner.close();
     }
