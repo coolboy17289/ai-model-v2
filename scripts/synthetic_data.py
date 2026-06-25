@@ -158,11 +158,33 @@ def _is_clean_subject(s: str) -> bool:
     return True
 
 
+# Wikipedia boilerplate that ends up in `paragraphs` but isn't useful for QA.
+# If a paragraph's first 200 chars contain any of these, skip it entirely.
+_BOILERPLATE_MARKERS = (
+    "From Wikipedia, the free encyclopedia",
+    "This article needs additional citations",
+    "The printable version is no longer supported",
+    "Find sources:",
+    "(Redirected from",
+    "Jump to navigation",
+    "Jump to content",
+    "Toggle ",
+    "&#160;",  # non-breaking space, common in nav boxes
+)
+
+
+def _is_boilerplate(text: str) -> bool:
+    head = text[:200]
+    return any(marker in head for marker in _BOILERPLATE_MARKERS)
+
+
 def _generate_for_paragraph(text: str) -> list[str]:
     """Return up to MAX_PAIRS_PER_PARA queries for a single paragraph."""
     if not (MIN_PARA_LEN <= len(text) <= MAX_PARA_LEN):
         return []
     if _looks_like_heading(text):
+        return []
+    if _is_boilerplate(text):
         return []
 
     queries: list[str] = []
