@@ -422,46 +422,23 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (math.sqrt(norm_a) * math.sqrt(norm_b))
 
 def query_question(question):
-    """Query the database for answers to a question."""
+    """Query the database for answers to a question.
+
+    Uses semantic embeddings (sentence-transformers) instead of TF-IDF.
+    Falls back to a helpful message if embeddings haven't been built yet.
+    Returns [(paragraph_id, text, score), ...] top-3 by cosine similarity.
+    """
     print(f"Processing question: {question}")
-    # Get total number of paragraphs for IDF
-    total_docs = get_total_paragraphs()
-    if total_docs == 0:
+    if get_total_paragraphs() == 0:
         print("No documents trained yet. Please train on some topics first.")
         return []
 
-    # Tokenize question
-    question_terms = tokenize(question)
-    # Compute IDF for each term in question
-    idf_dict = {}
-    for term in question_terms:
-        idf_dict[term] = compute_idf(term, total_docs)
-    # Compute TF-IDF vector for question
-    question_vector = compute_tfidf_vector(question, idf_dict)
-
-    # Fetch all paragraphs
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute('SELECT id, text FROM paragraphs')
-    rows = c.fetchall()
-    conn.close()
-
-    similarities = []
-    for para_id, para_text in rows:
-        para_terms = tokenize(para_text)
-        # Compute IDF for paragraph terms
-        para_idf_dict = {}
-        for term in para_terms:
-            if term not in para_idf_dict:
-                para_idf_dict[term] = compute_idf(term, total_docs)
-        para_vector = compute_tfidf_vector(para_text, para_idf_dict)
-        similarity = cosine_similarity(question_vector, para_vector)
-        similarities.append((para_id, para_text, similarity))
-
-    # Sort by similarity descending
-    similarities.sort(key=lambda x: x[2], reverse=True)
-    # Return top 3
-    return similarities[:3]
+    try:
+        from embeddings import query_top_k, EmbeddingsMissingError
+        return query_top_k(question, k=3)
+    except EmbeddingsMissingError as e:
+        print(str(e))
+        return []
 
 def list_topics():
     """List all trained topics."""
