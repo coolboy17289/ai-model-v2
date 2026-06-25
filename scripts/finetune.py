@@ -99,7 +99,10 @@ def finetune(epochs: int = 3, batch_size: int = 8, lr: float = 2e-5,
 
     print(f"Training: epochs={epochs}, batch_size={batch_size}, lr={lr}, warmup={warmup_steps}",
           file=sys.stderr)
-    base.fit(
+    # Use old_fit to stay on the v2 DataLoader+InputExample API. The new
+    # `fit()` in sentence-transformers 3.x wraps a Trainer that requires
+    # the `datasets` package, which we deliberately don't depend on.
+    base.old_fit(
         train_objectives=[(loader, loss)],
         epochs=epochs,
         warmup_steps=warmup_steps,
