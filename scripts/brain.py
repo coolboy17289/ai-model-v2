@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import os
 from urllib.parse import quote_plus
+from youtube_transcript_api import YouTubeTranscriptApi
 
 DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'brain.db')
 
@@ -29,6 +30,26 @@ def init_db():
         CREATE TABLE IF NOT EXISTS documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT UNIQUE NOT NULL
+        )
+    ''')
+    # Embeddings table for ML-based retrieval. Composite PK lets baseline
+    # and fine-tuned variants coexist. See scripts/embeddings.py.
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS paragraph_embeddings (
+            paragraph_id INTEGER NOT NULL,
+            model        TEXT    NOT NULL,
+            vector       BLOB    NOT NULL,
+            dim          INTEGER NOT NULL,
+            PRIMARY KEY (paragraph_id, model)
+        )
+    ''')
+    # Synthetic Q&A pairs for fine-tuning + eval. See scripts/synthetic_data.py.
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS synthetic_pairs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            query         TEXT    NOT NULL,
+            paragraph_id  INTEGER NOT NULL,
+            split         TEXT    NOT NULL
         )
     ''')
     conn.commit()
