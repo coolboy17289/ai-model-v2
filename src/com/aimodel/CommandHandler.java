@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 
 public class CommandHandler {
     public void handleCommand(String input) {
+        System.out.println("\u001B[36mDEBUG: Received input: '" + input + "'\u001B[0m");
         if (input.equalsIgnoreCase("/help")) {
             showHelp();
         } else if (input.startsWith("/train ")) {
