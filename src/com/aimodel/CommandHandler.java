@@ -6,7 +6,12 @@ import java.io.InputStreamReader;
 
 public class CommandHandler {
     public void handleCommand(String input) {
-        System.out.println("\u001B[36mDEBUG: Received input: '" + input + "'\u001B[0m");
+        // Remove potential BOM and trim whitespace
+        if (input.startsWith("\uFEFF")) {
+            input = input.substring(1);
+        }
+        input = input.trim();
+
         if (input.equalsIgnoreCase("/help")) {
             showHelp();
         } else if (input.startsWith("/train ")) {
