@@ -6,7 +6,10 @@ import sqlite3
 import sys
 import os
 from urllib.parse import quote_plus
-from youtube_transcript_api import YouTubeTranscriptApi
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+except ImportError:
+    YouTubeTranscriptApi = None
 
 DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'brain.db')
 
@@ -247,6 +250,12 @@ def train_language_doc(language, query):
         update_document_frequency(terms)
 
     print(f"Trained on {len(paragraphs)} paragraph(s) from {language.upper()} doc '{query}'.")
+    # Rebuild embeddings for the active model to include the newly added paragraphs.
+    try:
+        from embeddings import rebuild_embeddings
+        rebuild_embeddings(verbose=False)
+    except Exception as e:
+        print(f"Warning: failed to rebuild embeddings: {e}")
     return True
 
 # --- End language-specific fetchers ---
@@ -357,6 +366,12 @@ def train_topic(topic):
         update_document_frequency(terms)
 
     print(f"Trained on {len(paragraphs)} paragraphs from '{topic}'.")
+    # Rebuild embeddings for the active model to include the newly added paragraphs.
+    try:
+        from embeddings import rebuild_embeddings
+        rebuild_embeddings(verbose=False)
+    except Exception as e:
+        print(f"Warning: failed to rebuild embeddings: {e}")
     return True
 
 def get_total_paragraphs():
