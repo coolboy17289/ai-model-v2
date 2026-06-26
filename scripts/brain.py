@@ -6,10 +6,14 @@ import sqlite3
 import sys
 import os
 from urllib.parse import quote_plus
+
 try:
     from youtube_transcript_api import YouTubeTranscriptApi
 except ImportError:
     YouTubeTranscriptApi = None
+    print("Warning: youtube_transcript_api not installed. YouTube training will be disabled.", file=sys.stderr)
+
+from embeddings import rebuild_embeddings
 
 DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'brain.db')
 
